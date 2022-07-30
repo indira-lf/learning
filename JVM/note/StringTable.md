@@ -27,7 +27,21 @@ Java8元空间，字符串常量在堆中。
 
 # intern()的使用
 
+intern()方法会从常量池中查询当前字符串是否存在，若不存在就会将当前字符串放入常量池中，
 
+```java
+String myInfo = new String("aaaaa").intern();
+```
+
+也就是说，如果在任意字符串上调用String.intern()方法，那么返回结果所指向的那个类实例，必须和直接以常量形式出现的字符串实例完全相同。因此，下来表达式比必定是true
+
+```java
+("a"+"b"+"c").intern() == "abc";
+```
+
+通俗点讲，Interned String就是确保字符串在内存里只有一份拷贝，这样可以节约内存空间，加快字符串操作任务和执行速度。
+
+注意：这个值会被存放在字符串内部池（String Intern Pool）。
 
 # String Table的垃圾回收
 
