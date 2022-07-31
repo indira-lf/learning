@@ -124,4 +124,49 @@ public class ByteCodeInterView {
         //src.toString();
     }
 
+    /**
+     * new String("ab);会创建几个对象
+     *      两个
+     */
+    @Test
+    public void test9(){
+        String ab = new String("ab");
+        /**
+         * 对象1：new StringBuilder()
+         * 对象2：new String("a")
+         * 对象3：常量池中的"a"
+         * 对象4：new String("b")
+         * 对象5：常量池中的"b"
+         *
+         * 深入剖析：StringBuilder的toString()
+         *  对象6：new String("ab");
+         *      toString()的调用在字符串常量池中，没有生成"ab"
+         */
+        String str = new String("a") + new String("b");
+    }
+
+    @Test
+    public void test10(){
+        String s = new String("1");
+        s.intern();
+        String s2 = "1";
+        System.out.println(s == s2);
+
+        String s3 = new String("1") + new String("1");
+        s3.intern();
+        String s4 = "11";
+        System.out.println(s3 == s4); //false
+    }
+
+    public static void main(String[] args) {
+        String s = new String("1");
+        s.intern();
+        String s2 = "1";
+        System.out.println(s == s2);
+
+        String s3 = new String("1") + new String("1");
+        s3.intern();
+        String s4 = "11";
+        System.out.println(s3 == s4); //true
+    }
 }

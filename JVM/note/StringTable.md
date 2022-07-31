@@ -43,9 +43,68 @@ String myInfo = new String("aaaaa").intern();
 
 注意：这个值会被存放在字符串内部池（String Intern Pool）。
 
+
+
+## new String("ab");会创建几个对象
+
+两个
+
+一个对象是：new关键字在堆空间创建的
+
+另一个对象是：字符串常量池中的对象；字节码指令ldc
+
+## new String("a")+new String("b");会创建几个对象
+
+```java
+    @Test
+    public void test9(){
+        /**
+         * 对象1：new StringBuilder()
+         * 对象2：new String("a")
+         * 对象3：常量池中的"a"
+         * 对象4：new String("b")
+         * 对象5：常量池中的"b"
+         * 
+         * 深入剖析：StringBuilder的toString()
+         *  对象6：new String("ab");
+         *      toString()的调用在字符串常量池中，没有生成"ab"
+         */
+        String str = new String("a") + new String("b");
+    }
+```
+
+
+
+## 总结：在JDK6和JDK7/8中的使用
+
+- JDK6中，将这个字符串尝试放入字符串常量池中。
+- - 如果常量池中有，则并不会放入。返回已有的串池中的对象的地址
+  - 如果没有，会把==此对象复制一份== ，放入字符串常量池，并返回字符串常量池中的对象地址
+- JDK7起，将这个字符串对象尝试放入字符串常量池
+- - 如果字符串常量池中有，并不会放入。返回已有的字符串常量池中的对象的地址
+  - 如果没有，则会把==对象的引用地址复制一份== ，放入字符串常量池，并返回字符串常量池中的引用地址
+
 # String Table的垃圾回收
 
 
 
 # G1中的String去重操作
 
+- java堆中存活的数据集合差不多25%是String对象。
+- 堆上存在重复的String对象必然是一种内存的浪费。
+
+实现：
+
+- 当垃圾收集器工作的时候，会访问堆上存活的对象。**对每一个访问的对象都会检查是否候选的要去重的String对象** 。
+- 如果是，把这个对象的一个引用插入到队列中等待后续的处理。一个去重的线程在后台运行，处理这个队列。处理队列的一个元素意味着从队列删除这个元素，然后尝试去重它的引用的String对象。
+- 使用一个hashtable来记录所有的被String对象使用的不重复的char数组。当去重的时候，会检查这个hashtable，来看堆上是否存在已经存在一个一模一样的char数组。
+- 如果存在，String对象会被调整引用那个数组，释放对原来的数组的引用，最终会被垃圾收集器回收掉。
+- 如果查找失败，char数组会被插入到hashtable，这样以后的时候就可以共享这个数组了。
+
+
+
+命令行：
+
+- UseStringDeduplication(bool):开启String去重，默认是不开启的，需要手动开启。
+- PrintStringDeduplicationStatistics(bool)：打印详细的去重统计信息
+- StringDeduplicationAgeThreshold(uintx)：达到这个年龄的String对象被认为是去重的候选对象
