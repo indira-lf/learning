@@ -6,7 +6,7 @@ package memento;
  * @Description- TODO
  */
 public class MainTest {
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         FengGamer fengGamer = new FengGamer();
         fengGamer.playGame();
 
