@@ -86,3 +86,105 @@ BroketMQ的路由发现采用的是Pull模型。当Topic路由信息发生变化
 **客户端NameServer选择策略** 
 
 客户端在配置时必须要写上NameServer集群的地址，那么客户端到底连接的是哪个NameServer节点呢？客户端首先会选取一个随机数，然后再与NameServer节点数量取模，此时得到的就是所要连接的节点索引，然后就会进行连接。如果连接失败，则会采用round-robin策略，逐个尝试着去连接其它节点。
+
+> 客户端指的是Producer和Consumer
+
+首先采取的是随机策略进行选择，失败后采用轮询策略。
+
+> 扩展：Zookeeper Client是如何选择Zookeeper Server的？
+>
+> 简单来说就是，经历两次Shuffle，然后选择一台Zookeeper Server
+>
+> 详细说就是：将配置文件中的zk Server地址进行一次shuffle，然后随机选择一个。这个选择出的一般都是一个hosthome。然后获取到该hosthome对应空的所有ip，再对这些ip进行第二次shuffle，从shuffle过的结果中取第一个server地址进行连接。
+
+## Broker
+
+**功能介绍**
+
+消息中转角色，负责存储消息、转发消息。Broker在RocketMQ系统中负责接收并存储从生产者发送来的消息，同时为消费者的拉取请求作准备。Broker同时也存储着消息相关的元数据，包括消费者组消费进度偏移offset、主题、队列等。
+
+**模块组成** 
+
+![broker体系](../img/broker体系.png)
+
+$\textcolor{red}{Remoting Module}$ :整个Broker的实体，负责处理来自Clients端的请求。而这个Broker实体则由以下模块构成。
+
+$\textcolor{red}{Client Manager}$ ：客户端管理器。负责接收、解析客户端（Producer/Consumer）请求，管理客户端。例如，维护Consumer的Topic订阅消息。
+
+$\textcolor{red}{Store Service} $ ：存储服务。提供方便简单的API接口，处理消息存储到物理硬盘和消息查询功能。
+
+$\textcolor{red}{HA Service}$ ：高可用服务，提供Master Broker和Slave Broker之间的数据同步功能。
+
+$\textcolor{red}{Index Service}$ ：索引服务。根据特定的Message Key，对投递到Broker的消息进行索引服务，同时也提供根据Message Key对消息进行快速查询的功能。
+
+**集群部署** 
+
+为了增强Broker性能与吞吐量，Broker一般都是以集群形式出现的。各集群节点中可能存放着相同Topic的不同Queue。不过，这里有个问题，如果某Broker节点宕机，如何保证数据不丢失呢？其解决方案是，将每个Broker集群节点进行横向扩展，即将Broker节点再建为一个HA集群，解决单点问题。
+
+Broker节点集群是一个主从集群，即集群中具有Master与Slave两种角色。Master负责处理读写操作请求，Slave负责对Master中的数据进行备份。当Master挂掉了，Slave则会自动切换为Master去工作。所以这个Broker集群是主备集群。一个Master可以包含多个Slave，但一个Slave只能隶属于一个Master。 Master与Slave 的对应关系是通过指定相同的BrokerName、不同的BrokerId 来确定的。BrokerId为0表 示Master，非0表示Slave。每个Broker与NameServer集群中的所有节点建立长连接，定时注册Topic信息到所有NameServer。
+
+## 工作流程
+
+**具体流程** 
+
+1）启动NameServer，NameServer启动后开始监听端口，等待Broker、Producer、Consumer连接。
+
+2）启动Broker时，Broker会与所有的NameServer建立并保持长连接，然后每30秒向NameServer定时发送心跳包。
+
+3）发送消息前，可以先创建Topic，创建Topic时需要指定该Topic要存储在哪些Broker上，当然，在创建Topic时也会将Topic与Broker的关系写入到NameServer中。不过，这步是可选的，也可以在发送消息时自动创建Topic。 
+
+4）Producer发送消息，启动时先跟NameServer集群中的其中一台建立长连接，并从NameServer中获取路由信息，即当前发送的Topic消息的Queue与Broker的地址（IP+Port）的映射关系。然后根据算法策略从队选择一个Queue，与队列所在的Broker建立长连接从而向Broker发消息。当然，在获取到路由信息后，Producer会首先将路由信息缓存到本地，再每30秒从NameServer更新一次路由信息。
+
+5）Consumer跟Producer类似，跟其中一台NameServer建立长连接，获取其所订阅Topic的路由信息，然后根据算法策略从路由信息中获取到其所要消费的Queue，然后直接跟Broker建立长连接，开始消费其中的消息Consumer在获取到路由信息后，同样也会每30秒从NameServer更新一次路由信息。不过不同于Producer的是，Consumer还会向Broker发送心跳，以确保Broker的存活状态。
+
+**Topic的创建模式** 
+
+手动创建Topic时，有两种模式：
+
+- 集群模式：该模式下创建的Topic在该集群中，所有Broker中的Queue数量是相同的。
+- Broker模式：该模式下创建的Topic在该集群中，每个Broker中的Queue数量可以不同。
+
+自动创建Topic时，默认采用的是Broker模式，会为每个Broker默认创建4个Queue。 
+
+**读/写队列** 
+
+从物理上来讲，读/写队列是同一个队列。所以，不存在读/写队列数据同步问题。读/写队列是逻辑上进行区分的概念。一般情况下，读/写队列数量是相同的。例如，创建Topic时设置的写队列数量为8，读队列数量为4，此时系统会创建8个Queue，分别是0 1 2 3 4 5 6 7。Producer会将消息写入到这8个队列，但Consumer只会消费0 1 2 3这4个队列中的消息，4 5 6 7中的消息是不会被消费到的。
+
+再如，创建Topic时设置的写队列数量为4，读队列数量为8，此时系统会创建8个Queue，分别是0 1 2 3 4 5 6 7。Producer会将消息写入到0 1 2 3 这4个队列，但Consumer只会消费0 1 2 3 4 5 6 7这8个队列中的消息，但是4 5 6 7中是没有消息的。此时假设Consumer Group中包含两个Consuer，Consumer1消 费0 1 2 3，而Consumer2消费4 5 6 7。但实际情况是，Consumer2是没有消息可消费的。
+
+也就是说，当读/写队列数量设置不同时，总是有问题的。那么，为什么要这样设计呢？
+
+其这样设计的目的是为了，方便Topic的Queue的缩容。
+
+例如，原来创建的Topic中包含16个Queue，如何能够使其Queue缩容为8个，还不会丢失消息？可以动态修改写队列数量为8，读队列数量不变。此时新的消息只能写入到前8个队列，而消费都消费的却是16个队列中的数据。当发现后8个Queue中的消息消费完毕后，就可以再将读队列数量动态设置为8。整个缩容过程，没有丢失任何消息。
+
+perm用于设置对当前创建Topic的操作权限：2表示只写，4表示只读，6表示读写。
+
+# 集群搭建理论
+
+![数据复制与刷盘策略](../img/数据复制与刷盘策略.png)
+
+**复制策略**
+
+复制策略是Broker的Master与Slave间的数据同步方式。分为同步复制和异步复制：
+
+- 同步复制：消息写入master后，master会等待slave同步数据成功后才向Producer返回成功ACK
+- 异步复制：消息写入master后，master立即向Producer返回成功ACK，无需等待slave同步数据成功
+
+> 异步复制策略会降低系统的写入延迟，RT变小，提高了系统的吞吐量
+
+**刷盘策略**
+
+刷盘策略指的是broker中消息的落盘方式，即消息发送到broker内存后消息持久化到磁盘的方式。分为同步刷盘和异步刷盘：
+
+- 同步刷盘：当消息持久化到broker的磁盘后才算是消息写入成功。
+- 异步刷盘：当消息写入到broker的内存后即表示消息写入成功，无需等待消息持久化的磁盘。
+
+> 1）异步刷盘策略会降低系统的写入延迟，RT变小，提高了系统的吞吐量 
+>
+> 2）消息写入到Broker的内存，一般是写入到了PageCache 
+>
+> 3）对于异步 刷盘策略，消息会写入到PageCache后立即返回成功ACK。但并不会立即做落盘操 
+>
+> 作，而是当PageCache到达一定量时会自动进行落盘。
+
