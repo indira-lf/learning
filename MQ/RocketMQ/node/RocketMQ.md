@@ -230,3 +230,91 @@ Producer可以将消息写入到某Broker中的某Queue中，其经历了如下�
 
 该算法会统计每次消息投递的时间延迟，然后根据统计出的结果将消息投递到时间延迟最小的Queue。如果延迟相同，则采用轮询算法投递。
 
+## 消息的存储
+
+RocketMQ中消息存储在本地文件系统中，这些相关文件默认在当前用户主目录下的store目录中。
+
+
+
+### commitlog文件
+
+**目录与文件** 
+
+commitlog目录中存放着mappedFile文件，当前Broker中的所有消息都是被刷盘到这个mappedFile文件中的。mappedFile文件大小为1G，文件名由20位十进制数构成，表示当前文件的一条消息的起始位移偏移量。
+
+需要注意的是，一个Broker中仅包含一个commitlog目录，所有的mappedFile文件都是存在该目录文件中的。即无论当前Broker中存放着多少Topic消息，这些消息都是被顺序写入到mappedFile文件中的。也就是说，这些消息在Broker中存放时并没有被按照Topic进行分类存放。
+
+> mappedFile文件是顺序读写的文件，所有其访问效率很高
+
+**消息单元** 
+
+mappedFile文件内容由一个个的消息单元构成。每个消息单元中包含消息总长度MsgLen、消息的物理位置physicalOffset、消息体内容body、消息体长度BodyLength、消息主题Topic、Topic长度TopicLength、消息生产者BornHost、消息发送时间戳BornTimestamp、消息所在的队列QueueId、消息在Queue中存储的偏移量QueueOffset等近20余项消息相关属性。
+
+### consumerqueue
+
+#### 目录与文件
+
+为了提高效率，会为每个Topic在~/store/consumerqueue中创建一个目录，目录名为Topic名称。在该Topic目录下，会再为每个该Topic的Queue建立一个目录，目录名为queueId。每个目录中存放着若干consumerqueue文件，consumerqueue文件是commitlog的索引文件，可以根据consumerqueue定位到具体的消息。
+
+consumerqueue文件名也由20位数字构成，表示当前文件的第一个索引条目的起始位移偏移量。与mappedFile文件名不同的是，其后续文件名是固定的。因为consumerqueue文件大小是固定不变的。
+
+#### 索引条目 
+
+![索引条目](../img/索引条目.png)
+
+每个consumerqueue文件可以包含30w个索引条目，每个索引条目包含了三个消息重要属性：消息在mappedFile文件中的偏移量CommitLog Offset、消息长度、消息Tag的hashcode值。这三个属性占20个字节，所以每个文件的大小是固定的30w*20字节。
+
+> 一个consumerqueue文件中所有的Topic一定是相同的。但每条消息的Tag可能不一定
+
+### 对文件的读写
+
+#### 消息写入
+
+一条消息进入到Broker后经历了以下几个过程才最终被持久化。
+
+- Broker根据queueId，获取到该消息对应索引条目要在consumerqueue目录中的写入偏移量，即QueueOffset
+- 将queueId、queueOffset等数据，与消息一起封为消息单元
+- 将消息单元写入到commitlog
+- 同时形成索引条目
+- 将消息索引条目分发到相应的consumerqueue
+
+#### 消息拉取
+
+当Consumer来拉取消息时会经历以下几个步骤
+
+- Consumer获取到其要消费消息所在Queue的$\textcolor{red}{消费偏移量offset}$ ，计算出其要消费消息的$\textcolor{red}{消息offset}$ 
+- Consumer向Broker发送拉取请求，其中会包含其要拉取消息的Queue、消息offset及消息Tag
+- Broker计算在该consumerqueue中的queueOffset
+- 从该queueOffset处开始向后查找第一个指定Tag的索引条目。
+- 解析该索引条目中的前8个字节，即可定位到该消息在commitlog中的commitlog offset
+- 从对应commitlog offset中读取消息单元，并发送给Consumer
+
+#### 性能提升
+
+RocketMQ中，无论是消息本身还是消息索引，都是存储在磁盘上的。其不会影响消息的消费吗？当然不会。其实RocketMQ的性能在目前的MQ产品中性能是非常高的。因为系统通过一系列相关机制大大提升了性能。
+
+首先，RocketMQ对文件的读写操作是通过mmap零拷贝进行的，将对文件的操作转化为直接对内存地址进行操作，从而极大地提高了文件的读写效率。
+
+其次，consumerqueue中的数据是顺序存放的，还引入了PageCache的预读取机制，使得consumerqueue文件的读取几乎接近于内存读取，即使在消息堆积情况下也不会影响性能。
+
+> PageCache机制：页缓存机制，是OS对文件的缓存机制，用于加速对文件的读写操作。一般来说，程序对文件进行顺序读写的速度几乎接近于内存读写速度，主要原因是由于OS使用PageCache机制对读写访问操作进行性能优化，将一部分的内存用作PageCache。
+>
+> > 写操作：OS会先将数据写入到PageCache中，随后会以异步方式由pdflush（page dirty flush）内核线程将Cache中的数据刷盘到物理磁盘
+>
+> > 读操作：若用户要读取数据，其首先会从PageCache中读取，若没有命中，则OS在从物理磁盘上加载该数据到PageCache的同时，也会顺序对其相邻数据块中的数据进行预读取。
+
+RocketMQ中可能会影响性能的是对commitlog文件读取。因为commitlog文件来说，读取消息时会产生大量的随机访问，而随机访问会严重影响性能。不过，如果选择合适的系统IO调度算法，比如设置调度算法Deadline（采用SSD固态硬盘的话），随机读的性能也会有所提升。
+
+### 与kafka的对比
+
+RocketMQ的很多思想来源于kafka，其中commitlog与consumerqueue就是。
+
+RocketMQ中的commitlog目录与commitqueue的结合就类似于kafka中的partition分区目录。mappedFile文件就类似于kafka中的segment段。
+
+> kafka中的Topic的消息被分割为一个或多个partition。partition是一个物理概念，对应到系统上就是topic目录下的一个或多个目录。每个partition中包含的文件称为segment，是具体存放消息的文件。
+>
+> kafka中消息存放的目录结构是：topic目录下有partition目录，partition目录下有segment文件
+>
+> kafka中没有二级分类标签Tag这个概念
+>
+> kafka中无需索引文件。因为消息是直接写在partition中的，消费者也是直接从partition中读取数据的
