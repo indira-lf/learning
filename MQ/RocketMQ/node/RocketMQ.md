@@ -371,3 +371,33 @@ indexFile文件是何时创建的？
 
 - 当第一条带key的消息发送来后，系统发现没有indexFile，此时会创建第一个indexFile文件
 - 当一个indexFile中挂载的index索引单元数量超出2000w个时，会创建新的indexFile。当带key的消息发送到来后，系统会找到最新的indexFile，并从其indexHeader的最后4字节中读取到indexCount。若indexCount>= 2000w时，会创建新的indexFile。
+
+### 查询流程
+
+当消费者通过业务key来查询相应的消息时，其需要经过一个相对复杂的查询流程。不过，在分析查询流程之前，首先需要清楚几个定位计算式子：
+
+``` log
+计算指定消息key的slot槽位序号：
+slot槽位序号 = key的hash % 500w
+```
+
+```log
+计算槽位序号为n的slot在indexFile中的起始位置：
+slot(n)位置 = 40 + （n - 1）* 4
+```
+
+```log
+计算indexNo为m的index在indexFile中的位置：
+index(m)位置 = 40 + 500w * 4 + (m - 1) * 20
+```
+
+> 40为indexFile中indexHeader的字节数
+>
+> 500w * 4 是所有slots所占的字节数
+
+具体查询流程如下：
+
+
+
+![查询流程](../img/查询流程.png)
+
