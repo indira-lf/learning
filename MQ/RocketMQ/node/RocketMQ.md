@@ -401,3 +401,71 @@ index(m)位置 = 40 + 500w * 4 + (m - 1) * 20
 
 ![查询流程](../img/查询流程.png)
 
+## 消息的消费
+
+消费者Broker中获取消息的方式有两种：pull拉取方式和push推动方式。消费者组对于消息消费的模式又分为两种：集群消费Clustering和广播消费Broadcasting。
+
+### 推拉消费类型
+
+#### 拉取式消费
+
+Consumer主动从Broker中拉取消息，主动权由Consumer控制。一旦获取了批量消息，就会启动消费过程。不过，该方式的实时性较弱，即Broker中有了新的消息是消费者并不能及时发现并消费。
+
+#### 推送式消费
+
+该模式下Broker收到数据后会主动推送给Consumer。该消费模式一般实时性较高。
+
+该消费类型是典型的发布-订阅模式，即Consumer向其关联的Queue注册了监听器，一旦发现有新的消息到来就会触发回调的执行，回调方法是Consumer去Queue中拉取消息。而这些都是基于Consumer与Broker间的长连接的。长连接的维护是需要消耗系统资源的。
+
+#### 对比
+
+- pull：需要应用去实现Queue的遍历，实时性差；但便于应用控制消息的拉取
+- push：封装了对关联Queue的遍历，实时性强，但会占用较多的系统资源
+
+### 消费模式
+
+#### 广播模式
+
+广播消费模式下，相同Consumer Group的每个Consumer实例都接收同一个Topic的全量消息。即每条消息都会被发送到Consumer Group中的每个Consumer。
+
+#### 集群消费
+
+广播消费模式下，相同Consumer Group的每个Consumer实例平摊同一个Topic的全量消息。即每条消息都会被发送到Consumer Group中的某个Consumer。
+
+#### 消息进度保存
+
+- 广播模式：消费进度保存在consumer端。因为广播模式下consumer Group中每个consumer都会消费所有消息，但它们的消费进度是不同。所以consumer各种保存各自的消费进度。
+- 集群模式：消费进度保存在Broker中。consumer Group中的所有consumer共同消费同一个Topic中的消息，同一条消息只会被消费一次。消费进度会参加与到了消费的负载均衡中，故消费进度是需要共享的。
+
+### Rebalance机制
+
+#### 什么是Rebalance
+
+Rebalance即再均衡，指的是，将一个Topic下的多个Queue在同一个Consumer Group中的多个Consumer间进行重新分配的过程。
+
+Rebalance机制的本意是为了提升消息的并行消费能力。例如，一个Topic下5个队列，在只有1个消费者的情况下，这个消费者将负责消费这5个队列的消息。如果此时我们增加一个消费者，那么就可以给其中一个消费者分配2个队列，给另一个分配3个队列，从而提升消息的并行消费能力。
+
+#### Rebalance限制
+
+由于一个队列最多分配给一个消费者，因此当某个消费者组下的实例数量大于队列的数量时，多余的消费者实例将分配不到任何队列。
+
+#### Rebalance危害
+
+Rebalance的在提升消费能力的同时，也带来一些问题：
+
+==消费暂停：== 在只有一个Consumer时，其负责消费所有队列；在新增了一个Consumer后会触发Rebalance的发生。此时原Consumer就需要暂停部分队列的消费，等到这些队列分配给新的Consumer后，这些暂停消费的队列才能继续被消费。
+
+==消费重复：== Consumer在消费新分配给自己的队列时，必须接着之前Consumer提交的消费进度的offset继续消费。然而默认情况下，offset是异步提交的，这个异步性导致提交到Broker的offset与Consumer实际消费的消息并不一致。这个不一致的差值就是可能会重复消费这个消息。
+
+==消费突刺：== 由于Rebalance可能导致重复消费，如果需要重复消费的消息过多，或者因为Rebalance暂停时间过长从而导致积压了部分消息。那么有可能会导致在Rebalance结束之后瞬间需要消费很多消息。
+
+#### Rebalance产生的原因
+
+- 消费者所订阅的Queue数量发生变化
+- 消费者组消费者的数量发生变化
+
+#### Rebalance过程
+
+在Broker中维护着多个Map集合，这些集合中动态存放着当前Topic中Queue的消息、Consumer Group中Consumer实例的消息。一旦发现消费者所订阅的Queue数量发生变化，或消费组中消费者的数量发生变化，立即向Consumer Group中的每个实例发出Rebalance通知。
+
+Consumer实例在接收到通知后会采用Queue分配算法自己获取到相应的Queue，即由Consumer实例自主进行Rebalance。
