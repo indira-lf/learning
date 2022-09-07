@@ -469,3 +469,16 @@ Rebalance的在提升消费能力的同时，也带来一些问题：
 在Broker中维护着多个Map集合，这些集合中动态存放着当前Topic中Queue的消息、Consumer Group中Consumer实例的消息。一旦发现消费者所订阅的Queue数量发生变化，或消费组中消费者的数量发生变化，立即向Consumer Group中的每个实例发出Rebalance通知。
 
 Consumer实例在接收到通知后会采用Queue分配算法自己获取到相应的Queue，即由Consumer实例自主进行Rebalance。
+
+### Queue分配算法
+
+一个Topic中的Queue只能由Consumer Group中的一个Consumer进行消费，而一个Consumer可以同时消费多个Queue中的消息。那么Queue与Consumer间的配对关系是如何确定的，即Queue要分配给哪个Consumer进行消费，也是有算法策略的。常见的有四种策略。这些策略是通过在创建Consumer时的构造器传过去的。
+
+#### 平均分配策略
+
+![Queue平均分配策略](../img/Queue平均分配策略.png)
+
+该算法是要根据avg=QueueCount / ConsumerCount的计算结果进行分配的。如果能够整除，则按顺序将avg个Queue逐个分配给Consumer；如果不能整除，则将多余出的Queue按照Consumer顺序逐个分配。
+
+#### 环形平均策略
+
