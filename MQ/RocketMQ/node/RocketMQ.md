@@ -955,3 +955,44 @@ Producer回调操作执行的结果为本地事务状态，其会发送给TC，�
 - transactionCheckMax=5，指定最多回查5次，超过后将丢弃消息并记录错误日志。默认15次。
 - transactionCheckInterval=10，指定设置的多次消息回查的时间间隔为10秒。默认为60秒。
 
+
+## 批量消息
+
+### 批量发送消息
+
+#### 发送限制
+
+生产者进行消息发送时可以一次发送多条消息，这可以大大提升Producer的发送效率。不过需要注意以下几点：
+
+- 批量发送的消息必须具有相同的Topic
+- 批量发送的消息必须具有相同的刷盘策略
+- 批量发送的消息不能是延时消息与事务消息
+
+#### 批量发送大小
+
+默认情况下，一批发送的消息总大小不能超过4MB字节。如果想超出该值，有两种解决方案：
+
+- 方案一：将批量消息进行拆分，拆分为若干不大于4M的消息集合分多次批量发送
+- 方案二：在Producer端与Broker端修改属性
+- - Producer端需要在发送前设置Producer的maxMessageSize属性
+  - Broker端需要修改其加载的配置文件中的maxMessageSize属性
+
+#### 生产者发送的消息大小
+
+生产者通过send()方法发送的Message，并不是直接将Message序列化后发送到网络上的，而是通过这个Message生成一个字符串发送出去的。这个字符串由四部分构成：Topic、消息body、消息日志（占20字节），及用于描述消息的一堆属性key-value。这些属性中包含例如生成者地址、生成时间、要发送的QueueId等。最终写入到Broker中消息单元中的数据都是来自于这些属性。
+
+### 批量消费消息
+
+#### 修改批量属性
+
+Consumer的MessageListenerConcurrently监听接口的consumerMessage()方法的第一个参数为消息列表，但默认情况下每次只能消费一条消息。若要使其一次可以消费多条消息，则可以通过修改Consumer的consumerMessageBatchMaxSize属性来指定。不过，该值不能超过32。因为默认情况下消费者每次可以拉取的消息最多是32条。若修改一次拉取的最大值，则可以通过修改Consumer的pullBatchSize属性来指定。
+
+#### 存在的问题
+
+Consumer的pullBatchSize属性与consumerMessageBatchMaxSize属性是否设置的越大越好？
+
+当然不是。
+
+- pullBatchSize值设置的越大，Consumer每拉取一次需要的时间就会越长，且在网络上传输出现问题的可能性就越高。若在拉取过程中出现了问题，那么本批次所有消息都需要重写拉取。
+- consumerMessageBatchMaxSize值设置的越大，Consumer的消息并发消费能力越低，且这批被消费的消息具有相同的消费结果。因为consumerMessageBatchMaxSize指定的一批消息只会使用一个线程进行处理，且在处理过程中只要有一个消息处理异常，则这批消息需要全部重新再次消费处理。
+
