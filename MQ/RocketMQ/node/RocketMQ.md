@@ -996,3 +996,154 @@ Consumer的pullBatchSize属性与consumerMessageBatchMaxSize属性是否设置�
 - pullBatchSize值设置的越大，Consumer每拉取一次需要的时间就会越长，且在网络上传输出现问题的可能性就越高。若在拉取过程中出现了问题，那么本批次所有消息都需要重写拉取。
 - consumerMessageBatchMaxSize值设置的越大，Consumer的消息并发消费能力越低，且这批被消费的消息具有相同的消费结果。因为consumerMessageBatchMaxSize指定的一批消息只会使用一个线程进行处理，且在处理过程中只要有一个消息处理异常，则这批消息需要全部重新再次消费处理。
 
+
+## 消息过滤
+
+消息者在进行消息订阅时，除了可以指定要订阅消息的Topic外，还可以对指定Topic中的消息根据指定条件进行过滤，即可以订阅比Topic更加细粒度的消息类型。
+
+对指定Topic消息的过滤有两种过滤方法：Tag过滤和SQL过滤。
+
+#### Tag过滤
+
+通过consumer的subscribe()方法指定要订阅消息的Tag。如果订阅多个Tag消息，Tag间使用或运算符（||）连接。
+
+#### SQL过滤
+
+SQL过滤是一种通过特定表达式对事先埋入到消息中的用户属性进行筛选过滤的方式。通过SQL过滤，可以实现对消息的复杂过滤。不过，只有使用PUSH模式的消费者才能使用SQL过滤。
+
+SQL过滤表达式中支持多种常量类型与运算符。
+
+支持的常量类型：
+
+- 数值：123,3.1415
+- 字符：'abc'、'aaa' 必须用单引号包裹起来
+- 布尔：True、false
+- NULL
+
+支持的运算符有：
+
+- 数值比较：>,>=,<,<=,BETWEEN,=
+- 字符比较：=,<>,IN
+- 逻辑运算：AND,OR,NOT
+- NULL判断：IS NULL , IS NOT NULL
+
+
+默认情况下Broker没有开启消息的SQL过滤功能，需要在Broker加载的配置文件中添加如下属性，以开
+
+启该功能：
+
+```properties
+enablePropertyFilter = true
+```
+
+在启动Broker时需要指定这个修改过的配置文件。例如对于单机Broker的启动，其修改的配置文件是conf/broker.conf，启动时使用如下命令：
+
+```
+sh bin/mqbroker -n localhost:9876 -c conf/broker.conf &
+```
+
+## 消息发送重试机制
+
+### 说明
+
+Producer对发送失败的消息进行重新发送的机制，称为消息发送重试机制，也称为消息重投机制。
+
+对于消息重投，需要注意以下几点：
+
+- 生产者在发送消息时，若采用同步或异步发送方式，发送失败会重试，但oneway消息发送方式发送失败是没有重试机制的
+- 只有普通消息具有发送重试机制，顺序消息是没有的
+- 消息重投机制可以保证消息尽可能发送成功、不丢失，但可能会造成消息重复。消息重复在RocketMQ中是无法避免的问题
+- 消息重复在一般情况下不会发生，当出现消息量大、网络抖动，消息重复就会成为大概率事件
+- producer主动重发、consumer负载变化（发生Rebalance，不会导致消息重复，但可能出现重复消费）也会导致重复消息
+- 消息重复无法避免，但要避免消息的重复消费。
+- 避免消息重复消费的解决方案是，为消息添加唯一标识（例如消息key），使消费者对消息进行消费判断来避免重复消费
+- 消息发送重试有三种策略可以选择：同步发送失败策略、异步发送失败策略、消息刷盘失败策略
+
+### 同步发送失败策略
+
+对于普通消息，消息发送默认采用round-robin策略来选择所发送到的队列。如果发送失败，默认重试2次。但在重试时是不会选择上次发送失败的Broker，而是选择其它Broker。当然，若只有一个Broker其也只能发送到该Broker，但其会尽量发送到该Broker上的其它Queue。
+
+```java
+// 创建一个producer，参数为Producer Group名称 
+DefaultMQProducer producer = new DefaultMQProducer("pg"); 
+// 指定nameServer地址 
+producer.setNamesrvAddr("rocketmqOS:9876"); 
+// 设置同步发送失败时重试发送的次数，默认为2次 
+producer.setRetryTimesWhenSendFailed(3); 
+// 设置发送超时时限为5s，默认3s 
+producer.setSendMsgTimeout(5000);
+```
+
+同时，Broker还具有失败隔离功能，使Producer尽量选择未发生过发送失败的Broker作为目标Broker。其可以保证其它消息尽量不发送到问题Broker，为了提升消息发送效率，降低消息发送耗时。
+
+> 思考：让我们自己实现失败隔离功能，如何来做？ 
+>
+> 1）方案一：Producer中维护某JUC的Map集合，其key是发生失败的时间戳，value为Broker实 例。Producer中还维护着一个Set集合，其中存放着所有未发生发送异常的Broker实例。选择目 标Broker是从该Set集合中选择的。再定义一个定时任务，定期从Map集合中将长期未发生发送异常的Broker清理出去，并添加到Set集合。 
+>
+> 2）方案二：为Producer中的Broker实例添加一个标识，例如是一个AtomicBoolean属性。只要该Broker上发生过发送异常，就将其置为true。选择目标Broker就是选择该属性值为false的Broker。再定义一个定时任务，定期将Broker的该属性置为false。 
+>
+> 3）方案三：为Producer中的Broker实例添加一个标识，例如是一个AtomicLong属性。只要该Broker上发生过发送异常，就使其值增一。选择目标Broker就是选择该属性值最小的Broker。若 该值相同，采用轮询方式选择。
+
+如果超过重试次数，则抛出异常，由Producer去保证消息不丢。当然当生产者出现RemotingException、MQClientException和MQBrokerException时，Producer会自动重投消息。
+
+### 异步发送失败策略
+
+异步发送失败重试时，异步重试不会选择其他broker，仅在同一个broker上做重试，所以该策略无法保证消息不丢。
+
+```java
+DefaultMQProducer producer = new DefaultMQProducer("pg");
+producer.setNamesrvAddr("rocketmqOS:9876"); 
+// 指定异步发送失败后不进行重试发送 
+producer.setRetryTimesWhenSendAsyncFailed(0);
+```
+
+### 消息刷盘失败策略
+
+消息刷盘超时（Master或Slave）或slave不可用（slave在做数据同步时向master返回状态不是SEND_OK）时，默认是不会将消息尝试发送到其他Broker的。不过，对于重要消息可以通过在Broker的配置文件设置retryAnotherBrokerWhenNotStoreOK属性为true来开启。
+
+## 消息消费重试机制
+
+###  顺序消息的消费重试
+
+对于顺序消息，当Consumer消费消息失败后，为了保证消息的顺序性，其会自动不断地进行消息重试，直到消费成功。消费重试默认间隔时间为1000毫秒。重试期间应用会出现消息消费被阻塞的情况。
+
+```java
+DefaultMQPushConsumer consumer = new DefaultMQPushConsumer("cg"); 
+// 顺序消息消费失败的消费重试时间间隔，单位毫秒，默认为1000，其取值范围为[10, 30000] 
+consumer.setSuspendCurrentQueueTimeMillis(100);
+```
+
+由于对顺序消息的重试是无休止的，不间断的，直至消费成功，所以，对于顺序消息的消费， 务必要保证应用能够及时监控并处理消费失败的情况，避免消费被永久性阻塞。 
+
+### 无序消息的消费重试
+
+对于无序消息（普通消息、延时消息、事务消息），当Consumer消费消息失败时，可以通过设置返回状态达到消息重试的效果。不过需要注意，无序消息的重试只对集群消费方式生效，广播消费方式不提供失败重试特性。即对于广播消费，消费失败后，失败消息不再重试，继续消费后续消息。
+
+### 消费重试次数与间隔
+
+对于无序消息集群消费下的重试消费，每条消息默认最多重试16次，但每次重试的间隔时间是不同的，会逐渐变长。每次重试的间隔时间如下表。
+
+| 重试次数 | 与上次重试的间隔时间 | 重试次数 | 与上次重试的间隔时间 |
+| ---- | ---------- | ---- | ---------- |
+| 1    | 10秒        | 9    | 7分钟        |
+| 2    | 30秒        | 10   | 8分钟        |
+| 3    | 1分钟        | 11   | 9分钟        |
+| 4    | 2分钟        | 12   | 10分钟       |
+| 5    | 3分钟        | 13   | 20分钟       |
+| 6    | 4分钟        | 14   | 30分钟       |
+| 7    | 5分钟        | 15   | 1小时        |
+| 8    | 6分钟        | 16   | 2小时        |
+
+```java
+// 修改消费重试次数 
+consumer.setMaxReconsumeTimes(10);
+```
+
+- 若修改值小于16，则按照指定间隔进行重试 
+- 若修改值大于16，则超过16次的重试时间间隔均为2小时 
+
+### 重试队列
+
+对于需要重试消费的消息，并不是Consumer在等待了指定时长后再次去拉取原来的消息进行消费，而是将这些需要重试消费的消息放入到了一个特殊Topic的队列中，而后进行再次消费的。这个特殊的队列就是重试队列。
+
+当出现需要进行重试消费的消息时，Broker会为每个消费组都设置一个Topic名称为%RETRY%consumerGroup@consumerGroup 的重试队列。
