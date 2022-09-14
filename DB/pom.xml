@@ -10,6 +10,10 @@
     <modelVersion>4.0.0</modelVersion>
 
     <artifactId>DB</artifactId>
+    <packaging>pom</packaging>
+    <modules>
+        <module>sharding-jdbc-demo</module>
+    </modules>
 
     <properties>
         <maven.compiler.source>8</maven.compiler.source>
