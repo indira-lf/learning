@@ -1,6 +1,8 @@
 package com.feng.sharding;
 
+import com.feng.sharding.bean.Order;
 import com.feng.sharding.bean.User;
+import com.feng.sharding.mapper.OrderMapper;
 import com.feng.sharding.mapper.UserMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;
@@ -20,6 +22,7 @@ class ReadwriteTest {
 
     @Autowired
     private UserMapper userMapper;
+
 
     /**
      * 写入数据的测试
@@ -48,5 +51,16 @@ class ReadwriteTest {
         for (User user1 : users) {
             System.out.println(user1.toString());
         }
+    }
+
+    /**
+     * 读数据测试
+     */
+    @Test
+    public void testSelectAll(){
+        List<User> users = userMapper.selectList(null);
+        List<User> users1 = userMapper.selectList(null);//执行第二次测试负载均衡
+        users.forEach(System.out::println);
+        users1.forEach(System.out::println);
     }
 }
