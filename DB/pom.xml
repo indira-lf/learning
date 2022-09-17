@@ -13,6 +13,7 @@
     <packaging>pom</packaging>
     <modules>
         <module>sharding-jdbc-demo</module>
+        <module>sharding-proxy</module>
     </modules>
 
     <properties>
