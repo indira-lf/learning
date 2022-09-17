@@ -1,12 +1,15 @@
 package com.feng.sharding;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.feng.sharding.bean.Dict;
 import com.feng.sharding.bean.Order;
 import com.feng.sharding.bean.OrderItem;
 import com.feng.sharding.bean.User;
+import com.feng.sharding.mapper.DictMapper;
 import com.feng.sharding.mapper.OrderItemMapper;
 import com.feng.sharding.mapper.OrderMapper;
 import com.feng.sharding.mapper.UserMapper;
+import com.feng.sharding.vo.OrderVo;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -30,6 +33,9 @@ public class ShardingTest {
 
     @Autowired
     private OrderItemMapper orderItemMapper;
+
+    @Autowired
+    private DictMapper dictMapper;
 
     /**
      * 垂直分片：插入数据测试
@@ -188,5 +194,37 @@ public class ShardingTest {
             }
         }
 
+    }
+
+    /**
+     * 测试关联表查询
+     */
+    @Test
+    public void testGetOrderAmount(){
+
+        List<OrderVo> orderAmountList = orderMapper.getOrderAmount();
+        orderAmountList.forEach(System.out::println);
+    }
+
+    /**
+     * 广播表：每个服务器中的t_dict同时添加了新数据
+     */
+    @Test
+    public void testBroadcast(){
+
+        Dict dict = new Dict();
+        dict.setDictType("type1");
+        dictMapper.insert(dict);
+    }
+
+    /**
+     * 查询操作，只从一个节点获取数据
+     * 随机负载均衡规则
+     */
+    @Test
+    public void testSelectBroadcast(){
+
+        List<Dict> dicts = dictMapper.selectList(null);
+        dicts.forEach(System.out::println);
     }
 }
