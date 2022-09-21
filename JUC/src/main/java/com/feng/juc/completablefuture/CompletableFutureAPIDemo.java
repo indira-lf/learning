@@ -16,7 +16,8 @@ public class CompletableFutureAPIDemo {
 //        api2();
 //        api3();
 //        api4();
-        api5();
+//        api5();
+        api6();
         poolExecutor.shutdown();
     }
 
@@ -122,6 +123,18 @@ public class CompletableFutureAPIDemo {
             return 20;
         }),(r1,r2) -> {
             return r1 +r2;
+        });
+
+        System.out.println(future.join());
+    }
+
+    public static void api6() {
+        CompletableFuture<Integer> future = CompletableFuture.supplyAsync(() -> {
+            return 10;
+        }).thenCompose(i -> {
+            return CompletableFuture.supplyAsync(() -> {
+                return i + 11;
+            });
         });
 
         System.out.println(future.join());
