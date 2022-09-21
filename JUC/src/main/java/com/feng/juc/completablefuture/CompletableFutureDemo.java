@@ -1,6 +1,5 @@
 package com.feng.juc.completablefuture;
 
-import java.sql.Time;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
