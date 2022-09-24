@@ -14,9 +14,24 @@ public class InterruptDemo {
     static AtomicBoolean atomicBoolean = new AtomicBoolean(false);
 
     public static void main(String[] args) {
+        /*
+            线程中断demo
+         */
 //        i1();
 //        i2();
-        i3();
+        /*
+            interrupt Demo
+         */
+//        i3();
+//        i4();
+        /*
+         线程sleap(),interrupt不能停止问题
+         */
+//        i5();
+        /*
+            静态方法interrupted Demo
+         */
+        i6();
     }
 
     private static void i1() {
@@ -61,6 +76,11 @@ public class InterruptDemo {
             atomicBoolean.set(true);
         },"b").start();
     }
+
+    /**
+     * interrupt方法默认为false
+     * 当一个线程调用interrupt方法的时候，interrupt置为true仅此而已
+     */
     private static void i3() {
         Thread a = new Thread(() -> {
             while (true) {
@@ -79,8 +99,79 @@ public class InterruptDemo {
             e.printStackTrace();
         }
 
-        new Thread(() -> {
-            a.interrupt();
-        },"b").start();
+        System.out.println(a.isInterrupted());
+        a.interrupt();
+        System.out.println(a.isInterrupted());
+
+    }
+    /**
+     * 当一个线程调用interrupt方法的时候，interrupt置为true,线程并不会立刻停止
+     */
+    private static void i4() {
+        Thread a = new Thread(() -> {
+            for (int i=1; i<=3000;i++) {
+                System.out.println("-->"+i);
+            }
+            System.out.println("a02:"+Thread.currentThread().isInterrupted());
+        }, "a");
+        a.start();
+        System.out.println("a线程的中断标识位："+a.isInterrupted());
+        try {
+            TimeUnit.MILLISECONDS.sleep(3);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+
+        a.interrupt();
+        System.out.println("a01:"+a.isInterrupted());
+
+        try {
+            TimeUnit.SECONDS.sleep(3);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        System.out.println("a03:"+a.isInterrupted());
+    }
+
+    private static void i5() {
+        Thread a = new Thread(() -> {
+            while (true) {
+                if (Thread.currentThread().isInterrupted()) {
+                    System.out.println("------------>程序结束");
+                    break;
+                }
+                try {
+                    TimeUnit.MILLISECONDS.sleep(500);
+                } catch (InterruptedException e) { //线程中断标志位为false，无法停止，需要再次interrupt
+                    Thread.currentThread().interrupt();
+                    e.printStackTrace();
+                }
+                System.out.println("hello Interrupted");
+            }
+        }, "a");
+        a.start();
+        System.out.println("a线程的中断标识位："+a.isInterrupted());
+        try {
+            TimeUnit.MILLISECONDS.sleep(3);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+
+        try {
+            TimeUnit.SECONDS.sleep(3);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        a.interrupt();
+    }
+
+    private static void i6() {
+        System.out.println(Thread.currentThread().getName()+"----"+Thread.interrupted());
+        System.out.println(Thread.currentThread().getName()+"----"+Thread.interrupted());
+        System.out.println("====1====");
+        Thread.currentThread().interrupt(); // false -> true
+        System.out.println("====2====");
+        System.out.println(Thread.currentThread().getName()+"----"+Thread.interrupted()); //返回true，true->false
+        System.out.println(Thread.currentThread().getName()+"----"+Thread.interrupted());
     }
 }
