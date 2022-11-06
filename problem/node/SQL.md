@@ -14,7 +14,7 @@ SELECT * FROM CDPS_INF_PYMNT P
 	);
 ```
 
-==1、查询某天日期票据基本信息表（CDPS_INF_DRFT）存在票据对账临时表（CDPS_TMP_CHECK）不存在的数据.== 
+==2、查询某天日期票据基本信息表（CDPS_INF_DRFT）存在票据对账临时表（CDPS_TMP_CHECK）不存在的数据.== 
 
 ```plsql
 SELECT * FROM CDPS_INF_DRFT A
@@ -38,6 +38,12 @@ SELECT * FROM CDPS_INF_DRFT A
 
 			) = 0
 
+```
+
+==3、SQL除法保留两位小数。== 
+
+```mysql
+SELECT CAST(10000/0.01 AS DECIMAL(13,2)) FROM DUAL;
 ```
 
 
