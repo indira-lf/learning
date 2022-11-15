@@ -32,4 +32,12 @@ public class Policecase {
     public void setCreateTime(String createTime) {
         this.createTime = createTime;
     }
+
+    @Override
+    public String toString() {
+        return "Policecase{" +
+                "msgId='" + msgId + '\'' +
+                ", createTime='" + createTime + '\'' +
+                '}';
+    }
 }

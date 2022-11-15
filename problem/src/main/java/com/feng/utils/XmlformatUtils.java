@@ -4,7 +4,12 @@ import com.feng.bean.Hiatmq;
 import com.feng.bean.Policecase;
 
 import javax.xml.bind.JAXBContext;
+import javax.xml.bind.JAXBException;
 import javax.xml.bind.Marshaller;
+import javax.xml.stream.XMLEventReader;
+import javax.xml.stream.XMLInputFactory;
+import javax.xml.stream.XMLStreamException;
+import java.io.StringReader;
 import java.io.StringWriter;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -19,6 +24,13 @@ public class XmlformatUtils {
 
     public static final String UTF8 = "UTF-8";
 
+    /**
+     * bean转xml
+     * @param obj
+     * @param output
+     * @return
+     * @throws Exception
+     */
     public static String objectToXmlByJaxb(Object obj,boolean output) throws Exception{
         return objectToXmlByJaxb(obj,UTF8,output,true,"","");
     }
@@ -43,6 +55,31 @@ public class XmlformatUtils {
         return sw.toString();
     }
 
+    /**
+     * xml转Bean
+     * @param xml
+     * @param clazz
+     * @param <T>
+     * @return
+     */
+    public static <T> T objectToXmlByJaxb(String xml,Class<T> clazz) {
+        T obj = null;
+        try {
+            JAXBContext context = JAXBContext.newInstance(clazz);
+            XMLInputFactory xif = XMLInputFactory.newFactory();
+            xif.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES,false);
+            xif.setProperty(XMLInputFactory.SUPPORT_DTD,true);
+            XMLEventReader xsr = xif.createXMLEventReader(new StringReader(xml));
+            obj = (T) context.createUnmarshaller().unmarshal(xsr);
+        }catch (XMLStreamException e){
+
+        }catch (JAXBException e){
+
+        }
+
+        return obj;
+    }
+
     public static void main(String[] args) throws Exception {
         Hiatmq hiatmq = new Hiatmq();
         Policecase policecase = new Policecase();
@@ -51,5 +88,8 @@ public class XmlformatUtils {
         hiatmq.setPolicecase(policecase);
         String s = objectToXmlByJaxb(hiatmq, true);
         System.out.println(s);
+        Hiatmq hiatmq1 = objectToXmlByJaxb(s, Hiatmq.class);
+        System.out.println(hiatmq1.toString());
+        System.out.println(hiatmq1.getPolicecase().toString());
     }
 }

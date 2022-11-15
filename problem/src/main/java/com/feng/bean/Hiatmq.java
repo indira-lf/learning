@@ -44,4 +44,13 @@ public class Hiatmq {
     public void setPolicecase(Policecase policecase) {
         this.policecase = policecase;
     }
+
+    @Override
+    public String toString() {
+        return "Hiatmq{" +
+                "id='" + id + '\'' +
+                ", version='" + version + '\'' +
+                ", policecase=" + policecase +
+                '}';
+    }
 }
